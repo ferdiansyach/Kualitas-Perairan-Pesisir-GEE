@@ -1,0 +1,45 @@
+# Environments
+.env
+.venv
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# VS Code specific python settings
+.vscode/settings.json
+.vscode/launch.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Deployment / Secrets
+secrets.toml
+credentials.json
+*.pem
+
+# Streamlit
+.streamlit/
+
+# Note: We DO upload data/results and output/maps because they are lightweight JSON/PNGs needed for the dashboard to run without executing GEE script 02.

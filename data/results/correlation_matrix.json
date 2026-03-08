@@ -1,0 +1,50 @@
+{
+  "NDCI": {
+    "NDCI": 1.0,
+    "NDTI": 0.3488,
+    "TSS": 0.0346,
+    "CDOM": 0.0655,
+    "Secchi_Depth": -0.0299,
+    "SST": 0.0346
+  },
+  "NDTI": {
+    "NDCI": 0.3488,
+    "NDTI": 1.0,
+    "TSS": 0.425,
+    "CDOM": -0.2127,
+    "Secchi_Depth": 0.2666,
+    "SST": 0.1499
+  },
+  "TSS": {
+    "NDCI": 0.0346,
+    "NDTI": 0.425,
+    "TSS": 1.0,
+    "CDOM": -0.4193,
+    "Secchi_Depth": 0.5643,
+    "SST": 0.2806
+  },
+  "CDOM": {
+    "NDCI": 0.0655,
+    "NDTI": -0.2127,
+    "TSS": -0.4193,
+    "CDOM": 1.0,
+    "Secchi_Depth": -0.9717,
+    "SST": -0.4878
+  },
+  "Secchi_Depth": {
+    "NDCI": -0.0299,
+    "NDTI": 0.2666,
+    "TSS": 0.5643,
+    "CDOM": -0.9717,
+    "Secchi_Depth": 1.0,
+    "SST": 0.4991
+  },
+  "SST": {
+    "NDCI": 0.0346,
+    "NDTI": 0.1499,
+    "TSS": 0.2806,
+    "CDOM": -0.4878,
+    "Secchi_Depth": 0.4991,
+    "SST": 1.0
+  }
+}
