@@ -35,8 +35,8 @@ S2_BANDS = {
 }
 BAND_LIST = list(S2_BANDS.keys())
 
-# Menambahkan SST (Sea Surface Temperature) dari Landsat 8
-INDEX_NAMES = ['NDCI', 'NDTI', 'TSS', 'CDOM', 'Secchi_Depth', 'SST']
+# 3 Parameter Utama (Klorofil-a, TSM, Suhu Perairan)
+INDEX_NAMES = ['NDCI', 'TSS', 'SST']
 
 
 def authenticate_gee(project_id=PROJECT_ID):

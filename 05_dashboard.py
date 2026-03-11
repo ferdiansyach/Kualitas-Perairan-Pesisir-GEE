@@ -35,29 +35,26 @@ MAPS_DIR = os.path.join(BASE_DIR, 'output', 'maps')
 CHARTS_DIR = os.path.join(BASE_DIR, 'output', 'charts')
 
 PARAM_LABELS = {
-    'NDCI': 'Chlorophyll-a (NDCI mg/m³)',
-    'NDTI': 'Turbiditas (NDTI)',
-    'TSS': 'TSS (g/m³)',
-    'CDOM': 'CDOM (B2/B3)',
-    'Secchi_Depth': 'Secchi Depth (m)',
-    'SST': 'Suhu Perairan (SST °C)',
+    'NDCI': 'Klorofil-a (CHL mg/m³)',
+    'TSS': 'Total Suspended Matter (TSM g/m³)',
+    'SST': 'Sea Surface Temperature (SST °C)',
 }
 
 def get_kepmen_status(param, val):
-    """Berdasarkan Kepmen LH No 51/2004 untuk parameter Klorofil-a (NDCI proxy), TSM/TSS, dan SST."""
+    """Klasifikasi Kualitas Indikator (Buruk/Baik)."""
     if param == 'TSS':
-        if val < 0.5: return "🔴 **Buruk (<0.5 g/m³)**: Sangat jernih namun miskin nutrien (produktivitas rendah)"
-        elif 0.5 <= val <= 1.5: return "🟢 **Baik (0.5-1.5 g/m³)**: Kondisi seimbang mendukung ekosistem"
-        else: return f"🔴 **Buruk ({val:.2f} g/m³)**: Kandungan material sangat tinggi, menghambat fotosintesis"
+        if val < 0.5: return "🔴 **Buruk (<0.5 g/m³)**: Skor 1 - Kandungan material tersuspensi sangat rendah, air sangat jernih namun miskin nutrien (produktivitas relatif rendah)"
+        elif 0.5 <= val <= 1.5: return "🟢 **Baik (0.5-1.5 g/m³)**: Skor 3 - Kondisi TSM sedang & seimbang mendukung proses fotosintesis dan stabilitas ekosistem"
+        else: return f"🔴 **Buruk (>1.5 g/m³)**: Skor 1 - Kandungan material tersuspensi sangat tinggi menghambat penetrasi cahaya"
     elif param == 'NDCI':
-        if val < 0.5: return "🔴 **Buruk (<0.5 mg/m³)**: Klorofil sangat rendah, perairan kurang subur"
-        elif 0.5 <= val <= 1.0: return "🟢 **Baik (0.5-1.0 mg/m³)**: Kondisi optimum fitoplankton stabil"
-        else: return "🔴 **Buruk (>1.0 mg/m³)**: Eutrofik, menurunkan kualitas perairan (bahaya alga)"
+        if val < 0.5: return "🔴 **Buruk (<0.5 mg/m³)**: Skor 1 - Konsentrasi klorofil-a sangat rendah, mengindikasikan perairan kurang subur untuk rantai makanan"
+        elif 0.5 <= val <= 1.0: return "🟢 **Baik (0.5-1.0 mg/m³)**: Skor 3 - Kondisi optimum produktivitas primer stabil (fitoplankton cukup)"
+        else: return "🔴 **Buruk (>1.0 mg/m³)**: Skor 1 - Konsentrasi klorofil-a tinggi, mengindikasikan perairan eutrofik yang menurunkan kualitas"
     elif param == 'SST':
-        if val < 28: return "🔴 **Buruk (<28 °C)**: Terlalu dingin, memperlambat fotosintesis"
-        elif 28 <= val <= 32: return "🟢 **Baik (28-32 °C)**: Rentang suhu optimum"
-        else: return f"🔴 **Buruk (>32 °C)**: Terlalu panas ({val:.1f}°C) memicu stres pada biota laut"
-    return "⚪ *Belum ada standar baku Kepmen LH untuk parameter ini*"
+        if val < 28: return "🔴 **Buruk (<28 °C)**: Skor 1 - Suhu relatif rendah memperlambat proses metabolisme organisme laut"
+        elif 28 <= val <= 32: return "🟢 **Baik (28-32 °C)**: Skor 3 - Rentang suhu optimum mendukung produktivitas primer"
+        else: return f"🔴 **Buruk (>32 °C)**: Skor 1 - Suhu relatif tinggi menyebakan stres termal & mengganggu keseimbangan ekosistem laut"
+    return "⚪ *Klasifikasi Belum Tersedia*"
 
 st.set_page_config(
     page_title="🌊 Monitoring Perairan Pesisir",
@@ -389,24 +386,15 @@ def render_conclusion(sig_data):
         
         # Logika: apakah perubahan itu "baik" atau "buruk"?
         if param == 'TSS':
-            if delta < 0: membaik.append(f"**TSS (Material Padat)** menurun {abs(delta):.2f} {sig_text}: Air lebih jernih dari lumpur/pasir.")
-            else: memburuk.append(f"**TSS (Material Padat)** meningkat {abs(delta):.2f} {sig_text}: Air lebih pekat/kotor.")
-        elif param == 'CDOM':
-            if delta < 0: membaik.append(f"**CDOM (Bahan Organik)** menurun {abs(delta):.2f} {sig_text}: Indikasi pengurangan limbah organik.")
-            else: memburuk.append(f"**CDOM (Bahan Organik)** meningkat {abs(delta):.2f} {sig_text}: Indikasi penumpukan sisa bahan organik/polusi.")
-        elif param == 'Secchi_Depth':
-            if delta > 0: membaik.append(f"**Secchi Depth** meningkat {abs(delta):.2f}m {sig_text}: Jarak pandang tembus cahaya ke dalam laut semakin baik/jernih.")
-            else: memburuk.append(f"**Secchi Depth** menurun {abs(delta):.2f}m {sig_text}: Laut menjadi lebih keruh, cahaya sulit menembus.")
+            if delta < 0: membaik.append(f"**Total Suspended Matter (TSM)** menurun {abs(delta):.2f} {sig_text}: Air lebih jernih mendukung penetrasi cahaya.")
+            else: memburuk.append(f"**Total Suspended Matter (TSM)** meningkat {abs(delta):.2f} {sig_text}: Beban material menghambat produktivitas ekosistem.")
         elif param == 'SST':
             # SST naik biasanya buruk (pemanasan global/stres termal)
-            if delta > 0: memburuk.append(f"**Suhu Permukaan (SST)** naik {abs(delta):.1f}°C {sig_text}: Tren pemanasan perairan yang bisa memicu stres pada biota lepas pantai/karang.")
-            else: membaik.append(f"**Suhu Permukaan (SST)** turun {abs(delta):.1f}°C {sig_text}: Suhu perairan menjadi lebih sejuk.")
+            if delta > 0: memburuk.append(f"**Sea Surface Temperature (SST)** naik {abs(delta):.1f}°C {sig_text}: Tren pemanasan perairan yang mendisrupsi metabolisme organisme laut (stres termal).")
+            else: membaik.append(f"**Sea Surface Temperature (SST)** turun {abs(delta):.1f}°C {sig_text}: Suhu perairan menjadi lebih sejuk.")
         elif param == 'NDCI':
-            if delta > 0: memburuk.append(f"**NDCI (Klorofil-a)** naik {abs(delta):.3f} {sig_text}: Peningkatan fitoplankton, potensi risiko eutrofikasi/alga meledak.")
-            else: membaik.append(f"**NDCI (Klorofil-a)** turun {abs(delta):.3f} {sig_text}: Penurunan konsentrasi alga/fitoplankton.")
-        elif param == 'NDTI':
-             if delta < 0: membaik.append(f"**NDTI (Turbiditas)** menurun {abs(delta):.3f} {sig_text}: Kekeruhan air akibat material terlarut berkurang.")
-             else: memburuk.append(f"**NDTI (Turbiditas)** naik {abs(delta):.3f} {sig_text}: Kekeruhan perairan bertambah.")
+            if delta > 0: memburuk.append(f"**Klorofil-a (CHL)** naik {abs(delta):.3f} {sig_text}: Peningkatan fitoplankton ekstrem berefek pada perairan eutrofik.")
+            else: membaik.append(f"**Klorofil-a (CHL)** turun {abs(delta):.3f} {sig_text}: Penurunan konsentrasi alga liar yang berlebih.")
 
     col1, col2 = st.columns(2)
     

@@ -20,14 +20,11 @@ Pendekatan ini mutlak **100% berbasis Cloud** menggunakan konektivitas Google Ea
 
 ## 📊 Parameter Deteksi (ESA Sentinel-2 & NASA Landsat-8)
 
-| Indikator Kualitas Air | Algoritma Sensor | Deskripsi Dampak Lingkungan | Standar Mutu |
+| Indikator (3 Utama) | Algoritma Sensor | Deskripsi Dampak Lingkungan | Standar Nilai Baik |
 |---|---|---|---|
-| **Suhu (SST)** | Thermal Band 10 | Pemanasan/stres termal pada koloni karang. | Kepmen LH |
-| **Klorofil-a (NDCI)** | B5 & B4 (Red Edge) | Pertumbuhan alga fitoplankton (Eutrofikasi). | Kepmen LH |
-| **Material Padat (TSS)** | Empiris (Red) | Beban lumpur, menghalangi cahaya matahari. | Kepmen LH |
-| **Bahan Organik (CDOM)**| B2 / B3 | Indikasi masuknya pembuangan limbah (limbah domestik). | - |
-| **Turbiditas (NDTI)** | Lacaux et al. | Tingkat kekeruhan air visual. | - |
-| **Secchi Depth** | B2 / B3 (Log) | Jarak tembus pandang kejernihan ke bawah air laut. | - |
+| **Klorofil-a (CHL)** | B5 & B4 (Red Edge) | Produktivitas fitoplankton (jumlahnya harus pas, miskin (rendah) / eutrofik (tinggi) = buruk). | 0.5 - 1.0 mg/m³ |
+| **Total Suspended Matter (TSM)** | Empiris (Red) | Kekeruhan air akibat material padat; TSM yang tinggi buat cahaya matahari sulit masuk laut. | 0.5 - 1.5 g/m³ |
+| **Suhu (SST)** | Thermal Band 10 | Perubahan suhu tinggi bisa memicu suhu stres pada organisme biota laut. | 28 - 32 °C |
 
 ---
 
