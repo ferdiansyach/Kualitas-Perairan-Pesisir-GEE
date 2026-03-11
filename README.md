@@ -21,7 +21,7 @@ Pendekatan ini mutlak **100% berbasis Cloud** menggunakan konektivitas Google Ea
 ## 📊 Parameter Deteksi (ESA Sentinel-2 & NASA Landsat-8)
 
 | Indikator Kualitas Air | Algoritma Sensor | Deskripsi Dampak Lingkungan | Standar Mutu |
-|────────────────────────|──────────────────|─────────────────────────────|──────────────|
+|---|---|---|---|
 | **Suhu (SST)** | Thermal Band 10 | Pemanasan/stres termal pada koloni karang. | Kepmen LH |
 | **Klorofil-a (NDCI)** | B5 & B4 (Red Edge) | Pertumbuhan alga fitoplankton (Eutrofikasi). | Kepmen LH |
 | **Material Padat (TSS)** | Empiris (Red) | Beban lumpur, menghalangi cahaya matahari. | Kepmen LH |
