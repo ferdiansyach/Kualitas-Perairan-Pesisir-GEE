@@ -442,18 +442,16 @@ def main():
     render_metrics(stats, selected_year_1, selected_year_2, selected_param)
     st.markdown("---")
 
-    # Layout Map & Chart split horizontal
-    col_map, col_chart = st.columns([1.2, 1])
+    # Layout Map & Chart 
+    st.markdown(f"### 🗺️ GEE Split-Map ({selected_year_1} vs {selected_year_2})")
+    st.caption("Geser *slider* interaktif pada peta.")
+    with st.spinner("⏳ Menghubungkan Superkomputer Google Earth Engine..."):
+        render_map(selected_year_1, selected_year_2, selected_param)
 
-    with col_map:
-        st.markdown(f"### 🗺️ GEE Split-Map ({selected_year_1} vs {selected_year_2})")
-        st.caption("Geser *slider* interaktif pada peta.")
-        with st.spinner("⏳ Menghubungkan Superkomputer Google Earth Engine..."):
-            render_map(selected_year_1, selected_year_2, selected_param)
+    st.markdown("---")
 
-    with col_chart:
-        st.markdown("### 📈 Tren Kenaikan Historis (2019-2025)")
-        render_timeseries(stats, selected_param)
+    st.markdown("### 📈 Tren Kenaikan Historis (2019-2025)")
+    render_timeseries(stats, selected_param)
 
     st.markdown("---")
 
