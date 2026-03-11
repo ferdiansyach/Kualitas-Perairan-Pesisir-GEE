@@ -17,16 +17,14 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import folium
+import branca.colormap as cm
 from folium import plugins
-from streamlit_folium import st_folium
-import requests
-from io import BytesIO
-from PIL import Image
+import streamlit.components.v1 as components
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.gee_utils import (
     authenticate_gee, get_roi, get_sentinel2_collection,
-    compute_all_stats, get_ee_tile_url, get_index_vis_params,
+    get_landsat8_sst_collection, compute_all_stats, get_ee_tile_url, 
     STUDY_AREA, ANALYSIS_YEARS, INDEX_NAMES
 )
 from utils.water_indices import ee_add_all_indices
@@ -70,9 +68,27 @@ st.set_page_config(
 
 @st.cache_resource
 def init_gee():
-    """Inisialisasi GEE (sekali saja)."""
-    authenticate_gee()
-    return True
+    """Inisialisasi GEE."""
+    try:
+        authenticate_gee()
+        return True
+    except Exception as e:
+        st.error(f"🚨 **GEE Token Expired**: Koneksi Google Earth Engine terputus. Buka terminal Anda dan jalankan perintah: `earthengine authenticate`. \n\nError: {e}")
+        return False
+
+
+@st.cache_data(ttl=3600)
+def load_pvalue_data():
+    sig_path = os.path.join(RESULTS_DIR, 'trend_significance.csv')
+    sig_data = {}
+    if os.path.exists(sig_path):
+        df_sig = pd.read_csv(sig_path)
+        for _, row in df_sig.iterrows():
+            sig_data[row['parameter']] = {
+                'p_val': row['p_value'],
+                'is_sig': row['p_value'] < 0.05
+            }
+    return sig_data
 
 
 @st.cache_data(ttl=3600)
@@ -88,12 +104,18 @@ def load_cached_stats():
     return all_stats
 
 
-@st.cache_data(ttl=3600)
-def get_gee_image(year):
-    """Ambil processed image dari GEE (cached)."""
+# Hapus dekorator @st.cache_data karena objek ee.Image tidak serializable dengan aman
+# Proses build DAG EE di client-side sangat ringan (<1ms), jadi tidak perlu di-cache oleh Streamlit.
+def get_gee_image(year, param):
+    """Ambil processed image dari GEE sesuai jenis satelit."""
     roi = get_roi()
-    composite = get_sentinel2_collection(year, roi, max_cloud_pct=10)
-    return ee_add_all_indices(composite)
+    
+    # Sentinel-2 (Optik / Mulstispektral) tidak dapat memotret suhu
+    if param == 'SST':
+        return get_landsat8_sst_collection(year, roi, max_cloud_pct=10)
+    else:
+        composite = get_sentinel2_collection(year, roi, max_cloud_pct=10)
+        return ee_add_all_indices(composite)
 
 
 def render_header():
@@ -143,33 +165,32 @@ def render_sidebar():
     return selected_year_1, selected_year_2, selected_param
 
 
-def render_metrics(stats, year, param):
-    """Render metric cards dari statistik cached."""
-    if not stats or year not in stats or param not in stats[year]:
-        st.info("Statistik belum tersedia. Jalankan 02_cloud_processing.py dulu.")
+def render_metrics(stats, year1, year2, param):
+    """Render metric cards perbandingan Kiri vs Kanan."""
+    if not stats or year2 not in stats or param not in stats[year2]:
+        st.warning("Statistik belum tersedia. Pastikan script pemrosesan cloud (02) sudah selesai.")
         return
 
-    s = stats[year][param]
+    s1 = stats.get(year1, {}).get(param, {})
+    s2 = stats[year2][param]
     cols = st.columns(5)
     
     metrics = [
-        ("Rata-rata (Mean)", f"{s.get('mean', 0):.4f}"),
-        ("Persebaran (Std Dev)", f"{s.get('stdDev', 0):.4f}"),
-        ("Kandungan Terendah", f"{s.get('min', 0):.4f}"),
-        ("Kandungan Tertinggi", f"{s.get('max', 0):.4f}"),
-        ("Area Tercover (%)", f"{s.get('coverage_pct', 0):.1f}%"),
+        ("Rata-rata (Mean)", 'mean', "{:.4f}"),
+        ("Persebaran (Std)", 'stdDev', "{:.4f}"),
+        ("Terendah (Min)", 'min', "{:.4f}"),
+        ("Tertinggi (Max)", 'max', "{:.4f}"),
+        ("Area Valid", 'coverage_pct', "{:.1f}%"),
     ]
-    for col, (label, val) in zip(cols, metrics):
-        col.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{val}</div>
-            <div class="metric-label">{label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    
+    for col, (label, key, fmt) in zip(cols, metrics):
+        val1 = s1.get(key, 0)
+        val2 = s2.get(key, 0)
+        delta = val2 - val1
+        col.metric(label, fmt.format(val2), f"{delta:+.4f}" if key != 'coverage_pct' else f"{delta:+.1f}%")
 
-    # Tambahkan Klasifikasi Kepmen LH
     st.markdown("<br>", unsafe_allow_html=True)
-    st.info(f"📋 **Status Kualitas Air Nasional:** {get_kepmen_status(param, s.get('mean', 0))}")
+    st.info(f"📋 **Status Mutu Air Nasional (Data {year2}):** {get_kepmen_status(param, s2.get('mean', 0))}")
 
 
 def render_map(year1, year2, param):
@@ -177,43 +198,43 @@ def render_map(year1, year2, param):
     center_lat = (STUDY_AREA['north'] + STUDY_AREA['south']) / 2
     center_lon = (STUDY_AREA['west'] + STUDY_AREA['east']) / 2
 
-    # Inisialisasi peta terbagi
+    # Inisialisasi peta terbagi dengan cartodb yang menempel langsung sbg default
     m = plugins.DualMap(location=[center_lat, center_lon], zoom_start=10, 
-                        tiles=None)
+                        tiles='CartoDB dark_matter')
 
-    # Base layers map kiri & kanan
-    folium.TileLayer('CartoDB dark_matter', name='Dark Matter').add_to(m.m1)
-    folium.TileLayer('CartoDB dark_matter', name='Dark Matter').add_to(m.m2)
-
-    # Satellite base layer (opsional)
-    folium.TileLayer(
+    # Satellite base layer (opsional) - Sinkron ke kedua map
+    sat_layer1 = folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri', name='Satellite'
-    ).add_to(m.m1)
-    folium.TileLayer(
+    )
+    sat_layer2 = folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri', name='Satellite'
-    ).add_to(m.m2)
+    )
+    sat_layer1.add_to(m.m1)
+    sat_layer2.add_to(m.m2)
 
     # GEE tile map kiri (Tahun Awal)
     try:
-        img1 = get_gee_image(year1)
+        img1 = get_gee_image(year1, param)
         url1 = get_ee_tile_url(img1, param)
-        folium.TileLayer(
+        gee_layer1 = folium.TileLayer(
             tiles=url1, attr='Google Earth Engine',
             name=f'{param} {year1}', overlay=True, opacity=0.8
-        ).add_to(m.m1)
+        )
+        gee_layer1.add_to(m.m1)
     except Exception as e:
         st.error(f"Gagal load GEE tile peta kiri: {e}")
         
     # GEE tile map kanan (Tahun Pembanding)
     try:
-        img2 = get_gee_image(year2)
+        img2 = get_gee_image(year2, param)
         url2 = get_ee_tile_url(img2, param)
-        folium.TileLayer(
+        gee_layer2 = folium.TileLayer(
             tiles=url2, attr='Google Earth Engine',
             name=f'{param} {year2}', overlay=True, opacity=0.8
-        ).add_to(m.m2)
+        )
+        gee_layer2.add_to(m.m2)
     except Exception as e:
         st.error(f"Gagal load GEE tile peta kanan: {e}")
 
@@ -224,46 +245,79 @@ def render_map(year1, year2, param):
         color='cyan', weight=2, fill=False
     ).add_to(m)
 
-    folium.LayerControl().add_to(m.m1)
-    folium.LayerControl().add_to(m.m2)
-    st_folium(m, width="100%", height=500)
+    # Layer Control dikelompokkan agar tidak merusak UI jika dibuka pop-up list drop down-nya
+    folium.LayerControl(position='topright', collapsed=True).add_to(m.m1)
+    folium.LayerControl(position='topleft', collapsed=True).add_to(m.m2)
+
+    # -------------------------------------------------------------
+    # 🎨 INJEKSI CUSTOM CSS UNTUK UI PETA YANG BERSIH & SUPER LEGA
+    # -------------------------------------------------------------
+    clean_ui_css = """
+    <style>
+    /* Sembunyikan tombol + / - bawaan Leaflet agar peta lega */
+    .leaflet-control-zoom { display: none !important; }
+    
+    /* Buat Layer Control (Kotak Putih) menjadi mungil & transparan */
+    .leaflet-control-layers {
+        background: rgba(255, 255, 255, 0.8) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important;
+        margin-top: 15px !important;  
+    }
+    .leaflet-control-layers-toggle {
+        width: 30px !important; 
+        height: 30px !important;
+    }
+    
+    /* MEMBERIKAN GAP (JARAK) ANTARA PETA KIRI DAN KANAN */
+    #map_div_1, .leaflet-container:first-of-type {
+        border-right: 8px solid #0e1117 !important; /* Warna sesuai background dark theme streamlit */
+    }
+    </style>
+    """
+    m.get_root().html.add_child(folium.Element(clean_ui_css))
+    
+    # Gunakan direct HTML injection karena st_folium sering gagal me-render DualMap (plugin kompleks)
+    components.html(m._repr_html_(), height=500)
 
 
-def render_thumbnail(year, param):
-    """Tampilkan thumbnail dari file lokal."""
-    path = os.path.join(MAPS_DIR, f'{param}_{year}.png')
-    if os.path.exists(path):
-        st.image(path, caption=f'{PARAM_LABELS.get(param, param)} — {year}',
-                 use_container_width=True)
-    else:
-        st.info("Thumbnail belum tersedia. Jalankan 02_cloud_processing.py.")
-
-
-def render_timeseries(stats):
-    """Grafik time-series dari semua tahun."""
+def render_timeseries(stats, param):
+    """Grafik time-series dari parameter yang dipilih saja dan tombol download."""
     if not stats:
         return
 
     rows = []
-    for year, params in stats.items():
-        for param, s in params.items():
+    for yr, param_stats in stats.items():
+        if param in param_stats:
             rows.append({
-                'Tahun': year,
-                'Parameter': PARAM_LABELS.get(param, param),
-                'Mean': s.get('mean', 0) or 0
+                'Tahun': yr,
+                'Nilai Mean': param_stats[param].get('mean', 0)
             })
 
-    df = pd.DataFrame(rows)
-    fig = px.line(df, x='Tahun', y='Mean', color='Parameter',
-                  markers=True, title='Grafik Perubahan Tahunan')
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows).sort_values('Tahun')
+    fig = px.line(df, x='Tahun', y='Nilai Mean', markers=True, 
+                  title=f'Grafik Histori Tahunan ({PARAM_LABELS.get(param, param)})',
+                  color_discrete_sequence=['#48CAE4'])
     fig.update_layout(
         template='plotly_dark', height=380,
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         margin=dict(t=40, b=20)
     )
+    
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("💡 *Grafik ini membantu kita melihat apakah kualitas air laut membaik atau memburuk dari tahun ke tahun. Jika garis mengarah ke atas, berarti kandungan zat tersebut meningkat.*")
+    
+    # Download JSON stats convert to CSV
+    csv_data = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Data Tren (CSV)",
+        data=csv_data,
+        file_name=f'trend_historis_{param}.csv',
+        mime='text/csv'
+    )
+    st.caption("💡 *Grafik ini membantu kita melihat kelonjakan tren pada parameter spesifik ini dari tahun 2019 hingga 2025.*")
 
 
 def render_charts():
@@ -278,7 +332,7 @@ def render_charts():
                          use_container_width=True)
 
 
-def render_change_detection():
+def render_change_detection(sig_data):
     """Tampilkan hasil change detection."""
     cd_path = os.path.join(RESULTS_DIR, 'change_detection.json')
     if not os.path.exists(cd_path):
@@ -288,17 +342,6 @@ def render_change_detection():
     st.caption("Membandingkan trend berdasarkan data historis tahun awal hingga akhir.")
     with open(cd_path) as f:
         data = json.load(f)
-
-    # Load data p-value / uji signifikansi statistik (jika ada)
-    sig_path = os.path.join(RESULTS_DIR, 'trend_significance.csv')
-    sig_data = {}
-    if os.path.exists(sig_path):
-        df_sig = pd.read_csv(sig_path)
-        for _, row in df_sig.iterrows():
-            sig_data[row['parameter']] = {
-                'p_val': row['p_value'],
-                'is_sig': row['p_value'] < 0.05
-            }
 
     st.markdown(f"**Periode Perbandingan:** Tahun {data['period']}")
     params = data.get('parameters', {})
@@ -319,10 +362,9 @@ def render_change_detection():
                 st.markdown(f"<div style='font-size:11px;color:#aaa;margin-top:-10px;'>P-val: {sig_info['p_val']:.3f} {icon}</div>", unsafe_allow_html=True)
 
 
-def render_conclusion():
+def render_conclusion(sig_data):
     """Tampilkan kesimpulan otomatis berdasarkan data change detection dan p-value."""
     cd_path = os.path.join(RESULTS_DIR, 'change_detection.json')
-    sig_path = os.path.join(RESULTS_DIR, 'trend_significance.csv')
     
     if not os.path.exists(cd_path):
         return
@@ -335,20 +377,14 @@ def render_conclusion():
         data = json.load(f)
         
     params = data.get('parameters', {})
-    
-    # Load p-value data
-    sig_data = {}
-    if os.path.exists(sig_path):
-        df_sig = pd.read_csv(sig_path)
-        for _, row in df_sig.iterrows():
-            sig_data[row['parameter']] = row['p_value'] < 0.05
             
     membaik = []
     memburuk = []
     
     for param, vals in params.items():
         delta = vals['mean_change']
-        is_sig = sig_data.get(param, False)
+        sig_info = sig_data.get(param, {})
+        is_sig = sig_info.get('is_sig', False)
         sig_text = "(Signifikan)" if is_sig else "(Tidak Signifikan)"
         
         # Logika: apakah perubahan itu "baik" atau "buruk"?
@@ -394,56 +430,53 @@ def render_conclusion():
 
 
 def main():
-    init_gee()
+    if not init_gee():
+        return
+
     render_header()
     selected_year_1, selected_year_2, selected_param = render_sidebar()
 
-    # Load cached stats
+    # Load cached data
     stats = load_cached_stats()
+    sig_data = load_pvalue_data()
 
-    # Metrics untuk tahun paling akhir (kanan)
-    st.markdown(f"### 📊 Statistik Parametrik: {PARAM_LABELS.get(selected_param, selected_param)} — Tahun {selected_year_2}")
-    render_metrics(stats, selected_year_2, selected_param)
-    st.markdown("---")
-
-    # Main content map real-time
-    st.markdown(f"### 🗺️ Peta Resolusi Tinggi (Area Kiri: **{selected_year_1}** ↔ Area Kanan: **{selected_year_2}**)")
-    st.caption("Geser *slider* peta interaktif ini ke kiri dan kanan untuk melihat perbedaan kondisi perairan pesisir secara langsung melalui Citra Satelit.")
-    
-    render_map(selected_year_1, selected_year_2, selected_param)
-    
-    st.markdown("---")
-    
-    # Tambahkan Edukasi untuk POV Umum
-    with st.expander("📖 Panduan Singkat untuk Pengguna Umum (Cara Membaca Data Ini)"):
+    # Panduan Edukasi (dipindah ke atas sebelum data teknis)
+    with st.expander("📖 Panduan Cepat untuk Awam: Cara Membaca Dashboard Pesisir"):
         st.markdown("""
-        **Apa arti gambar dan grafik di bawah ini?**
-        - **Peta Satelit Split:** Area sebelah kiri merepresentasikan "Tahun Awal", sebelah kanan "Tahun Akhir. Lihat warna merah (kondisi panas/pekat).
-        - **Trend Temporal (Grafik Garis):** Menunjukkan apakah kualitas air membaik atau memburuk dari tahun 2019 ke 2025.
-        - **Statistik (Mean/Rata-rata):** Angka yang menunjukkan tingkat kepekatan zat di seluruh perairan pada tahun akhir penanggalan.
-        
-        **Apa arti dari parameter (model) ini?**
-        1. **Chlorophyll-a (NDCI):** Indikator banyaknya fitoplankton/alga. Menjadi penentu kesuburan perairan.
-        2. **Turbiditas (NDTI):** Tingkat kekeruhan air karena pasir, erosi, dll.
-        3. **TSS (Total Suspended Solids):** Jumlah material padat (pasir/lumpur) yang melayang di air. Angka tinggi berarti laut sangat kotor/tercemar.
-        4. **CDOM (Bahan Organik Terlarut):** Indikator pembusukan bahan organik dari limbah sungai atau daratan.
-        5. **Secchi Depth:** Mengukur seberapa **jernih** air laut cahaya tembus ke dalam.
-        6. **SST (Sea Surface Temperature):** Suhu laut, sangat penting bagi terumbu karang. Suhu terlalu dingin/panas merusak ekosistem.
+        **1. Peta Satelit Split:** Area Kiri ("Tahun Awal") dan Kanan ("Tahun Akhir"). Warna merah berarti polusi pekat/panas, biru berarti air jernih/sejuk. Ada legenda warna di peta.
+        **2. Statistik Angka:** Perubahan `+` / `-` membuktikan apakah parameter naik atau turun jika tahun Kiri dan Kanan dibandingkan.
+        **3. Ringkasan Eksekutif:** Baca tabulasi di bagian **Bawah** untuk kesimpulan naratif (Kabar Baik vs Buruk).
         """)
 
-    st.markdown("### 📈 Trend Temporal Historis")
-    render_timeseries(stats)
+    # Metrics dengan Delta Kiri (1) ke Kanan (2)
+    st.markdown(f"### 📊 Perbandingan Statistik Angka: {selected_year_1} vs {selected_year_2}")
+    st.caption(f"Fokus Indikator Utama: **{PARAM_LABELS.get(selected_param, selected_param)}**")
+    render_metrics(stats, selected_year_1, selected_year_2, selected_param)
+    st.markdown("---")
+
+    # Layout Map & Chart split horizontal
+    col_map, col_chart = st.columns([1.2, 1])
+
+    with col_map:
+        st.markdown(f"### 🗺️ GEE Split-Map ({selected_year_1} vs {selected_year_2})")
+        st.caption("Geser *slider* interaktif pada peta.")
+        with st.spinner("⏳ Menghubungkan Superkomputer Google Earth Engine..."):
+            render_map(selected_year_1, selected_year_2, selected_param)
+
+    with col_chart:
+        st.markdown("### 📈 Tren Kenaikan Historis (2019-2025)")
+        render_timeseries(stats, selected_param)
 
     st.markdown("---")
 
-    # Change detection
-    render_change_detection()
+    # Change detection (makro awal hingga akhir)
+    render_change_detection(sig_data)
 
     # Charts
     render_charts()
     
     # Conclusion / Executive Summary
-    render_conclusion()
+    render_conclusion(sig_data)
 
     # Footer
     st.markdown("---")

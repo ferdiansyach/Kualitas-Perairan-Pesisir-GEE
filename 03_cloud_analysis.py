@@ -4,8 +4,19 @@
 Analisis spasial-temporal sepenuhnya di GEE server:
 - Change detection antar tahun
 - Korelasi antar parameter
-- Trend temporal
+- Trend temporal (Mann-Kendall + Sen's Slope)
 - Hotspot identification
+
+CATATAN METODOLOGI:
+  Versi sebelumnya menggunakan scipy.stats.linregress untuk uji tren.
+  Dengan N=7 titik data, asumsi normalitas residual tidak dapat
+  diverifikasi, sehingga p-value parametrik tidak valid.
+
+  Solusi: Mann-Kendall Trend Test + Sen's Slope Estimator.
+  Keduanya adalah uji non-parametrik, standar dalam hidrologi dan
+  analisis deret-waktu klimatik (Hamed & Rao, 1998).
+
+  Instalasi dependensi: pip install pymannkendall
 
 Usage: python 03_cloud_analysis.py
 """
@@ -29,6 +40,93 @@ from utils.water_indices import ee_add_all_indices
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(BASE_DIR, 'data', 'results')
 MAPS_DIR = os.path.join(BASE_DIR, 'output', 'maps')
+
+
+def _mann_kendall_fallback(x: np.ndarray, y: np.ndarray) -> dict:
+    """
+    Implementasi Mann-Kendall manual sebagai fallback jika pymannkendall
+    tidak terinstal. Menghitung statistik S dan Sen's Slope.
+    Referensi: Mann (1945), Kendall (1975).
+    """
+    n = len(y)
+    # Statistik S
+    S = sum(
+        np.sign(y[j] - y[i])
+        for i in range(n - 1)
+        for j in range(i + 1, n)
+    )
+    # Variansi S (tanpa koreksi ties)
+    var_S = n * (n - 1) * (2 * n + 5) / 18
+    # Z-score
+    if S > 0:
+        z = (S - 1) / np.sqrt(var_S)
+    elif S < 0:
+        z = (S + 1) / np.sqrt(var_S)
+    else:
+        z = 0.0
+    # p-value (dua sisi)
+    from scipy.special import erfc
+    p_value = erfc(abs(z) / np.sqrt(2))
+    # Sen's Slope
+    slopes = [
+        (y[j] - y[i]) / (x[j] - x[i])
+        for i in range(n - 1)
+        for j in range(i + 1, n)
+        if x[j] != x[i]
+    ]
+    sen_slope = float(np.median(slopes)) if slopes else 0.0
+
+    trend = 'increasing' if S > 0 else ('decreasing' if S < 0 else 'no trend')
+    return {
+        'trend': trend,
+        'h': p_value < 0.05,
+        'p': float(p_value),
+        'z': float(z),
+        'Tau': float(S / (n * (n - 1) / 2)),
+        'slope': sen_slope,
+        'method': 'Mann-Kendall (manual)',
+    }
+
+
+def mann_kendall_trend(series: np.ndarray, years: list) -> dict:
+    """
+    Uji tren Mann-Kendall + Sen's Slope Estimator.
+
+    Menggunakan pymannkendall jika tersedia (direkomendasikan), atau
+    implementasi manual sebagai fallback.
+
+    Mengapa Mann-Kendall lebih baik daripada linregress di sini:
+    - Non-parametrik: tidak mengasumsikan distribusi normal
+    - Robust terhadap outlier (misalnya tahun ekstrem akibat El Niño)
+    - Standar dalam analisis tren hidrologis dan klimatik
+    - Valid untuk N kecil (N ≥ 4 sudah dapat diinterpretasikan)
+    """
+    x = np.array(years, dtype=float)
+    y = np.array(series, dtype=float)
+
+    try:
+        import pymannkendall as mk
+        result = mk.original_test(y)
+        # Sen's Slope (estimator lereng median-based — robust terhadap outlier)
+        slopes = [
+            (y[j] - y[i]) / (x[j] - x[i])
+            for i in range(len(y) - 1)
+            for j in range(i + 1, len(y))
+            if x[j] != x[i]
+        ]
+        sen_slope = float(np.median(slopes)) if slopes else 0.0
+        return {
+            'trend': result.trend,
+            'h': result.h,          # True jika signifikan pada α=0.05
+            'p': float(result.p),
+            'z': float(result.z),
+            'Tau': float(result.Tau),
+            'slope': sen_slope,
+            'method': 'Mann-Kendall (pymannkendall)',
+        }
+    except ImportError:
+        # Fallback ke implementasi manual jika library tidak tersedia
+        return _mann_kendall_fallback(x, y)
 
 
 def get_processed_image(year, roi):
@@ -97,8 +195,15 @@ def change_detection(img_early, img_late, year_early, year_late, roi):
 
         except Exception as e:
             print(f"   ⚠️  {param}: {e}")
-            results[param] = {'mean_change': 0, 'std_change': 0,
-                              'pct_increased': 50, 'pct_decreased': 50}
+            # FIX: Kembalikan None/NaN — bukan 0.
+            # Nilai 0 pada parameter fisik (mis. SST=0°C, TSS=0) akan
+            # mendistorsi rata-rata tahunan dan seluruh analisis tren.
+            results[param] = {
+                'mean_change': None,
+                'std_change': None,
+                'pct_increased': None,
+                'pct_decreased': None,
+            }
 
     return results
 
@@ -145,10 +250,19 @@ def correlation_analysis(image, roi):
 
 
 def temporal_trend(all_stats, output_dir):
-    """Analisis trend temporal dari statistik yang sudah dihitung."""
-    print(f"\n📈 Analisis Trend Temporal...")
+    """
+    Analisis trend temporal menggunakan Mann-Kendall + Sen's Slope.
+
+    Mengapa bukan linregress:
+    - N=7 terlalu kecil untuk memvalidasi asumsi normalitas
+    - Satu tahun ekstrem (El Niño, banjir besar) dapat mengubah slope
+      secara drastis pada regresi parametrik
+    - Mann-Kendall adalah standar WMO untuk tren hidrologis jangka pendek
+    """
+    print(f"\n📈 Analisis Trend Temporal (Mann-Kendall + Sen's Slope)...")
 
     import pandas as pd
+
     rows = []
     for year in ANALYSIS_YEARS:
         stat_file = os.path.join(RESULTS_DIR, f'statistics_{year}.json')
@@ -156,48 +270,63 @@ def temporal_trend(all_stats, output_dir):
             with open(stat_file) as f:
                 data = json.load(f)
             for param, vals in data['statistics'].items():
+                # FIX: Gunakan None/NaN untuk nilai yang gagal dihitung,
+                # bukan 0. Ini mencegah distorsi pada perhitungan tren.
+                mean_val = vals.get('mean')
                 rows.append({
                     'year': year, 'parameter': param,
-                    'mean': vals.get('mean', 0),
-                    'std': vals.get('stdDev', 0),
-                    'min': vals.get('min', 0),
-                    'max': vals.get('max', 0),
+                    'mean': mean_val,         # None jika gagal
+                    'std': vals.get('stdDev'),
+                    'min': vals.get('min'),
+                    'max': vals.get('max'),
                 })
 
-    if rows:
-        df = pd.DataFrame(rows)
-        csv_path = os.path.join(output_dir, 'temporal_trends.csv')
-        df.to_csv(csv_path, index=False)
-        print(f"   💾 Trend data: {csv_path}")
+    if not rows:
+        print("   ⚠️  Tidak ada data statistik. Jalankan 02_cloud_processing.py dulu.")
+        return []
 
-        from scipy.stats import linregress
-        trend_stats = []
+    df = pd.DataFrame(rows)
+    csv_path = os.path.join(output_dir, 'temporal_trends.csv')
+    df.to_csv(csv_path, index=False)
+    print(f"   💾 Trend data: {csv_path}")
 
-        # Simple linear trend & P-Value
-        for param in INDEX_NAMES:
-            sub = df[df['parameter'] == param].sort_values('year')
-            if len(sub) >= 3:
-                first = sub.iloc[0]['mean']
-                last = sub.iloc[-1]['mean']
-                change = last - first
-                direction = "↑" if change > 0 else "↓"
-                
-                # Uji Signifikansi Statistik (P-value via Linear Regression)
-                slope, intercept, r_val, p_val, stderr = linregress(sub['year'], sub['mean'])
-                sig_label = "✅ Signifikan" if p_val < 0.05 else "❌ Tidak Signifikan"
+    trend_results = []
+    print(f"\n   {'Parameter':<15} {'Trend':>12} {'Sen Slope':>12} {'p-value':>10} {'Signifikan':>12}")
+    print(f"   {'-'*65}")
 
-                print(f"   {param}: {first:.4f} → {last:.4f} ({direction}{abs(change):.4f}) | P-val: {p_val:.3f} ({sig_label})")
-                
-                trend_stats.append({
-                    'parameter': param,
-                    'slope_per_year': slope,
-                    'p_value': p_val,
-                    'significance': "Significant" if p_val < 0.05 else "Not Significant"
-                })
+    for param in INDEX_NAMES:
+        sub = df[(df['parameter'] == param) & (df['mean'].notna())].sort_values('year')
 
-        # Save trend significance
-        if trend_stats:
-            pd.DataFrame(trend_stats).to_csv(os.path.join(output_dir, 'trend_significance.csv'), index=False)
+        if len(sub) < 4:
+            # Mann-Kendall memerlukan minimal 4 titik untuk bermakna
+            print(f"   {param:<15} {'N/A (data kurang)':>40}")
+            continue
+
+        mk_result = mann_kendall_trend(sub['mean'].values, sub['year'].tolist())
+
+        sig_label = "✅ Ya" if mk_result['h'] else "❌ Tidak"
+        print(f"   {param:<15} {mk_result['trend']:>12} "
+              f"{mk_result['slope']:>+12.6f} "
+              f"{mk_result['p']:>10.4f} "
+              f"{sig_label:>12}")
+
+        trend_results.append({
+            'parameter': param,
+            'trend_direction': mk_result['trend'],
+            'sens_slope_per_year': mk_result['slope'],
+            'kendall_tau': mk_result['Tau'],
+            'z_score': mk_result['z'],
+            'p_value': mk_result['p'],
+            'significant_alpha005': mk_result['h'],
+            'method': mk_result['method'],
+            'n_years': len(sub),
+        })
+
+    if trend_results:
+        trend_df = pd.DataFrame(trend_results)
+        trend_path = os.path.join(output_dir, 'trend_significance.csv')
+        trend_df.to_csv(trend_path, index=False)
+        print(f"\n   💾 Signifikansi tren: {trend_path}")
 
     return rows
 

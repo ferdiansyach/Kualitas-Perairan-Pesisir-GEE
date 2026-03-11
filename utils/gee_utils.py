@@ -11,19 +11,22 @@ import json
 import requests
 import numpy as np
 from io import BytesIO
+import yaml
 
-# ============================================================
-# KONFIGURASI AREA STUDI
-# ============================================================
+_cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+with open(_cfg_path, encoding='utf-8') as _f:
+    _CFG = yaml.safe_load(_f)
 
+PROJECT_ID = _CFG['gee']['project_id']
+ANALYSIS_YEARS = _CFG['analysis']['years']
+
+_bbox = _CFG['study_area']['bbox']
 STUDY_AREA = {
-    'west': 105.85,    # Banten (Tangerang)
-    'east': 107.00,    # Jakarta Timur
-    'north': -5.85,    # Laut lepas
-    'south': -6.20,    # Garis pantai
+    'west': _bbox[0],
+    'south': _bbox[1],
+    'east': _bbox[2],
+    'north': _bbox[3],
 }
-
-ANALYSIS_YEARS = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
 
 S2_BANDS = {
     'B2': 'Blue', 'B3': 'Green', 'B4': 'Red',
@@ -36,7 +39,7 @@ BAND_LIST = list(S2_BANDS.keys())
 INDEX_NAMES = ['NDCI', 'NDTI', 'TSS', 'CDOM', 'Secchi_Depth', 'SST']
 
 
-def authenticate_gee(project_id='skripsi-rth'):
+def authenticate_gee(project_id=PROJECT_ID):
     """Autentikasi dan inisialisasi Google Earth Engine."""
     try:
         ee.Initialize(project=project_id)
@@ -50,10 +53,8 @@ def authenticate_gee(project_id='skripsi-rth'):
 
 def get_roi():
     """Membuat Region of Interest (ROI)."""
-    return ee.Geometry.Rectangle([
-        STUDY_AREA['west'], STUDY_AREA['south'],
-        STUDY_AREA['east'], STUDY_AREA['north']
-    ])
+    bbox = _CFG['study_area']['bbox']
+    return ee.Geometry.Rectangle(bbox)
 
 
 def mask_s2_clouds(image):
@@ -186,7 +187,13 @@ def compute_all_stats(image, index_names=None, roi=None, scale=30):
                   f"std={stats.get('stdDev', 0):.4f}")
         except Exception as e:
             print(f"   ⚠️  {name}: gagal — {e}")
-            all_stats[name] = {'mean': 0, 'stdDev': 0, 'min': 0, 'max': 0}
+            all_stats[name] = {
+                'mean': None,
+                'stdDev': None,
+                'min': None,
+                'max': None,
+                'coverage_pct': None,
+            }
 
     return all_stats
 

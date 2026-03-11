@@ -155,8 +155,8 @@ def calculate_cdom(blue, green):
 
 def calculate_secchi_depth(blue, green):
     """Secchi Depth lokal: ln(Blue) / ln(Green)"""
-    blue_f = blue.astype(np.float64)
-    green_f = green.astype(np.float64)
+    blue_f = np.where(blue > 1, blue / 10000.0, blue).astype(np.float64)
+    green_f = np.where(green > 1, green / 10000.0, green).astype(np.float64)
     valid = (blue_f > 0) & (green_f > 0)
     result = np.where(valid, np.log(blue_f) / np.log(green_f), np.nan)
     return result.astype(np.float32)

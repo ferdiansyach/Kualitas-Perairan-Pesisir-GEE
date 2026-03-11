@@ -1,8 +1,21 @@
 """
-06 - Machine Learning (Opsional)
-================================
-ML untuk prediksi kualitas air menggunakan sample data dari GEE.
-Data di-sample dari server → training di laptop (data kecil).
+06 - Machine Learning (Unsupervised Clustering)
+================================================
+Menggunakan K-Means untuk mengklasifikasikan zona kualitas air
+berdasarkan multi-band signature satelit.
+
+CATATAN METODOLOGI:
+  Versi sebelumnya melatih model untuk memprediksi NDCI/NDTI/TSS dari
+  band spektral — ini adalah circular logic karena indeks tersebut
+  dihitung deterministik dari band yang sama (R²≈0.99 tidak bermakna).
+
+  Solusi: Gunakan Unsupervised Clustering (K-Means) untuk
+  mengelompokkan piksel air ke zona "Bersih", "Sedang", "Tercemar"
+  berdasarkan signature spektral multi-band. Ini valid secara ilmiah
+  karena tidak ada ground-truth yang di-buat-ulang dari data yang sama.
+
+  Jika Anda memiliki data in-situ (pengukuran lapangan), ganti variabel
+  `y` dengan nilai ground-truth tersebut untuk supervised learning.
 
 Usage: python 06_machine_learning.py
 """
@@ -12,12 +25,13 @@ import sys
 import json
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.svm import SVR
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import RobustScaler
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score, davies_bouldin_score
+from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.gee_utils import (
@@ -31,15 +45,25 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(BASE_DIR, 'data', 'results')
 CHARTS_DIR = os.path.join(BASE_DIR, 'output', 'charts')
 
-# Fitur (band + rasio)
+# Band spektral sebagai fitur (bebas dari circular logic)
 FEATURE_BANDS = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11']
-# Target (indeks kualitas air)
-TARGET_PARAMS = ['NDCI', 'NDTI', 'TSS', 'CDOM', 'Secchi_Depth', 'SST']
+
+# Label zona kualitas air (dari nilai indeks rendah → tinggi)
+CLUSTER_LABELS = {
+    0: {'name': 'Bersih',    'color': '#0288D1'},
+    1: {'name': 'Sedang',    'color': '#FFA726'},
+    2: {'name': 'Tercemar',  'color': '#D32F2F'},
+}
+
+N_CLUSTERS = 3  # Dapat disesuaikan berdasarkan analisis silhouette
 
 
-def collect_training_data(n_points=5000):
-    """Kumpulkan training data dari semua tahun via GEE sampling."""
-    print("📋 Mengumpulkan training data dari GEE...\n")
+def collect_spectral_samples(n_points: int = 5000) -> pd.DataFrame:
+    """
+    Sample pixel spektral dari GEE untuk semua tahun analisis.
+    Hanya mengambil band reflektansi — BUKAN indeks turunan.
+    """
+    print("📡 Sampling data spektral dari GEE...\n")
     roi = get_roi()
     all_data = []
 
@@ -47,165 +71,248 @@ def collect_training_data(n_points=5000):
         print(f"   📅 Tahun {year}:")
         composite_s2 = get_sentinel2_collection(year, roi, max_cloud_pct=10)
         composite_l8 = get_landsat8_sst_collection(year, roi, max_cloud_pct=20)
-        image = ee_add_all_indices(composite_s2).addBands(composite_l8)
 
-        # Sample dari GEE — data kecil (beberapa MB)
+        # Ambil band mentah — indeks TIDAK digunakan sebagai fitur
+        image = composite_s2.addBands(composite_l8)
         df = sample_training_data(image, n_points=n_points, scale=30, roi=roi)
         df['year'] = year
         all_data.append(df)
 
     combined = pd.concat(all_data, ignore_index=True)
-    combined = combined.dropna()
-    print(f"\n   ✅ Total: {len(combined)} samples berhasil dikumpulkan")
+    combined = combined.dropna(subset=FEATURE_BANDS)
 
-    # Simpan sebagai CSV
-    csv_path = os.path.join(RESULTS_DIR, 'ml_training_data.csv')
+    print(f"\n   ✅ Total: {len(combined)} piksel berhasil di-sample")
+    csv_path = os.path.join(RESULTS_DIR, 'ml_spectral_samples.csv')
     os.makedirs(RESULTS_DIR, exist_ok=True)
     combined.to_csv(csv_path, index=False)
-    print(f"   💾 Data: {csv_path} ({os.path.getsize(csv_path)/1024:.0f} KB)")
-
+    print(f"   💾 Data: {csv_path}")
     return combined
 
 
-def train_models(df):
-    """Latih model ML untuk setiap parameter target."""
+def find_optimal_k(X_scaled: np.ndarray, k_range: range = range(2, 8)) -> int:
+    """
+    Tentukan K optimal menggunakan Silhouette Score dan Davies-Bouldin Index.
+    Kedua metrik ini tidak memerlukan ground-truth.
+    """
+    print("\n🔍 Menentukan jumlah cluster optimal (K)...")
+    silhouette_scores = []
+    db_scores = []
+
+    # Sub-sample untuk efisiensi
+    n_eval = min(10_000, len(X_scaled))
+    idx = np.random.choice(len(X_scaled), n_eval, replace=False)
+    X_eval = X_scaled[idx]
+
+    for k in k_range:
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = km.fit_predict(X_eval)
+        sil = silhouette_score(X_eval, labels, sample_size=min(5000, n_eval))
+        db = davies_bouldin_score(X_eval, labels)
+        silhouette_scores.append(sil)
+        db_scores.append(db)
+        print(f"   K={k}: Silhouette={sil:.4f}, Davies-Bouldin={db:.4f}")
+
+    # Pilih K dengan Silhouette tertinggi
+    best_k = list(k_range)[np.argmax(silhouette_scores)]
+    print(f"\n   ✅ K optimal = {best_k} (Silhouette = {max(silhouette_scores):.4f})")
+    return best_k, silhouette_scores, list(k_range)
+
+
+def run_kmeans_clustering(df: pd.DataFrame, n_clusters: int = N_CLUSTERS):
+    """
+    Latih K-Means pada data spektral dan simpan label cluster.
+    """
     print(f"\n{'='*55}")
-    print(f"🤖 MACHINE LEARNING")
+    print(f"🤖 K-MEANS CLUSTERING (K={n_clusters})")
     print(f"{'='*55}")
 
-    # Filter fitur yang tersedia
     features = [b for b in FEATURE_BANDS if b in df.columns]
-    # Tambah rasio spektral sebagai fitur tambahan
-    if 'B2' in df.columns and 'B3' in df.columns:
-        df['B2_B3_ratio'] = df['B2'] / df['B3'].replace(0, np.nan)
-        features.append('B2_B3_ratio')
-    if 'B4' in df.columns and 'B3' in df.columns:
-        df['B4_B3_ratio'] = df['B4'] / df['B3'].replace(0, np.nan)
-        features.append('B4_B3_ratio')
-    if 'B5' in df.columns and 'B4' in df.columns:
-        df['B5_B4_ratio'] = df['B5'] / df['B4'].replace(0, np.nan)
-        features.append('B5_B4_ratio')
+    X = df[features].values
 
-    df = df.dropna(subset=features)
+    # Pipeline: RobustScaler → K-Means
+    # RobustScaler dipilih karena data piksel satelit sering mengandung outlier
+    # akibat sisa awan tipis atau spike polusi lokal.
+    pipeline = Pipeline([
+        ('scaler', RobustScaler()),
+        ('kmeans', KMeans(n_clusters=n_clusters, random_state=42, n_init=20)),
+    ])
+    pipeline.fit(X)
+    labels = pipeline.predict(X)
 
-    models = {
-        'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
-        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, random_state=42),
-        'SVR': SVR(kernel='rbf', C=1.0)
-    }
+    df = df.copy()
+    df['cluster'] = labels
 
-    all_results = {}
+    # Beri label semantik berdasarkan rata-rata B4 (proxy turbiditas/TSS)
+    # Cluster dengan B4 tertinggi → "Tercemar", terendah → "Bersih"
+    cluster_b4_mean = df.groupby('cluster')['B4'].mean().sort_values()
+    rank_map = {orig: new for new, orig in enumerate(cluster_b4_mean.index)}
+    df['cluster_ranked'] = df['cluster'].map(rank_map)
+    df['cluster_label'] = df['cluster_ranked'].map(
+        lambda x: CLUSTER_LABELS.get(x, {}).get('name', f'Cluster {x}'))
 
-    for target in TARGET_PARAMS:
-        if target not in df.columns:
-            continue
+    # Statistik per cluster
+    print("\n   📊 Statistik per Cluster:")
+    cluster_stats = {}
+    for c in sorted(df['cluster_ranked'].unique()):
+        sub = df[df['cluster_ranked'] == c]
+        label = CLUSTER_LABELS.get(c, {}).get('name', f'Cluster {c}')
+        pct = len(sub) / len(df) * 100
+        b4_mean = sub['B4'].mean()
+        print(f"   [{c}] {label:12s}: {len(sub):>6} piksel ({pct:4.1f}%) | B4 mean={b4_mean:.4f}")
+        cluster_stats[label] = {
+            'n_pixels': int(len(sub)),
+            'pct': round(pct, 2),
+            'mean_B4': round(float(b4_mean), 6),
+            'mean_B3': round(float(sub['B3'].mean()), 6),
+        }
 
-        print(f"\n   📌 Target: {target}")
-        data = df[features + [target]].dropna()
-
-        if len(data) < 50:
-            print(f"      ⚠️  Tidak cukup data ({len(data)} samples)")
-            continue
-
-        X = data[features].values
-        y = data[target].values
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42)
-
-        scaler = StandardScaler()
-        X_train_s = scaler.fit_transform(X_train)
-        X_test_s = scaler.transform(X_test)
-
-        target_results = {}
-
-        for name, model in models.items():
-            model.fit(X_train_s, y_train)
-            y_pred = model.predict(X_test_s)
-
-            r2 = r2_score(y_test, y_pred)
-            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-            mae = mean_absolute_error(y_test, y_pred)
-
-            target_results[name] = {
-                'R2': round(r2, 4),
-                'RMSE': round(rmse, 6),
-                'MAE': round(mae, 6)
-            }
-            print(f"      {name:>20}: R²={r2:.4f}, RMSE={rmse:.6f}")
-
-        # Feature importance (Random Forest)
-        rf = models['Random Forest']
-        if hasattr(rf, 'feature_importances_'):
-            imp = dict(zip(features, [round(v, 4) for v in rf.feature_importances_]))
-            target_results['feature_importance'] = imp
-
-        all_results[target] = target_results
-
-    return all_results, features
+    return df, pipeline, cluster_stats
 
 
-def plot_ml_results(results):
-    """Visualisasi hasil ML."""
+def analyze_temporal_distribution(df: pd.DataFrame) -> pd.DataFrame:
+    """Hitung distribusi cluster per tahun untuk analisis temporal."""
+    print("\n📅 Distribusi Zona per Tahun:")
+    dist = (df.groupby(['year', 'cluster_label'])
+              .size()
+              .unstack(fill_value=0))
+    dist_pct = dist.div(dist.sum(axis=1), axis=0) * 100
+
+    print(dist_pct.round(1).to_string())
+    return dist_pct
+
+
+def plot_results(df: pd.DataFrame, silhouette_scores: list,
+                 k_range: list, dist_pct: pd.DataFrame,
+                 n_clusters: int):
+    """Buat visualisasi komprehensif hasil clustering."""
     os.makedirs(CHARTS_DIR, exist_ok=True)
+    features = [b for b in FEATURE_BANDS if b in df.columns]
 
-    params = [p for p in TARGET_PARAMS if p in results]
-    model_names = ['Random Forest', 'Gradient Boosting', 'SVR']
+    # --- 1. PCA biplot + cluster coloring ---
+    scaler = RobustScaler()
+    X_s = scaler.fit_transform(df[features].values)
+    pca = PCA(n_components=2, random_state=42)
+    X_pca = pca.fit_transform(X_s[:20_000])  # sub-sample untuk speed
+    labels_sub = df['cluster_ranked'].values[:20_000]
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    x = np.arange(len(params))
-    width = 0.25
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    for i, model in enumerate(model_names):
-        r2_values = [results[p].get(model, {}).get('R2', 0) for p in params]
-        ax.bar(x + i * width, r2_values, width, label=model, alpha=0.85)
+    # PCA scatter
+    ax = axes[0]
+    for c, meta in CLUSTER_LABELS.items():
+        if c >= n_clusters:
+            continue
+        mask = labels_sub == c
+        ax.scatter(X_pca[mask, 0], X_pca[mask, 1],
+                   c=meta['color'], alpha=0.3, s=5, label=meta['name'])
+    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+    ax.set_title("PCA — Distribusi Cluster Spektral", fontweight='bold')
+    ax.legend(markerscale=3)
+    ax.grid(True, alpha=0.3)
 
-    ax.set_xlabel('Parameter')
-    ax.set_ylabel('R² Score')
-    ax.set_title('Perbandingan Model ML — R² Score', fontweight='bold')
-    ax.set_xticks(x + width)
-    ax.set_xticklabels(params, rotation=15)
+    # Silhouette vs K
+    ax = axes[1]
+    ax.plot(k_range, silhouette_scores, 'o-', color='#0288D1', linewidth=2)
+    ax.set_xlabel("Jumlah Cluster (K)")
+    ax.set_ylabel("Silhouette Score")
+    ax.set_title("Pemilihan K Optimal", fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    best_k_idx = np.argmax(silhouette_scores)
+    ax.axvline(k_range[best_k_idx], color='red', linestyle='--', alpha=0.7,
+               label=f"K optimal={k_range[best_k_idx]}")
     ax.legend()
-    ax.grid(True, axis='y', alpha=0.3)
-    ax.set_ylim(0, 1.1)
 
-    path = os.path.join(CHARTS_DIR, 'ml_comparison.png')
+    # Temporal distribution stacked bar
+    ax = axes[2]
+    colors_stack = [CLUSTER_LABELS[i]['color'] for i in range(n_clusters)
+                    if CLUSTER_LABELS[i]['name'] in dist_pct.columns]
+    cols_ordered = [CLUSTER_LABELS[i]['name'] for i in range(n_clusters)
+                    if CLUSTER_LABELS[i]['name'] in dist_pct.columns]
+    dist_pct[cols_ordered].plot(
+        kind='bar', stacked=True, ax=ax,
+        color=colors_stack, edgecolor='white', linewidth=0.5)
+    ax.set_xlabel("Tahun")
+    ax.set_ylabel("Persentase Piksel (%)")
+    ax.set_title("Distribusi Zona Kualitas Air per Tahun", fontweight='bold')
+    ax.set_xticklabels(dist_pct.index, rotation=0)
+    ax.legend(title="Zona", loc='upper right')
+    ax.grid(True, axis='y', alpha=0.3)
+    ax.set_ylim(0, 105)
+
+    fig.suptitle("Klasifikasi Zona Kualitas Air — K-Means Unsupervised\n"
+                 "Pesisir Jakarta & Banten",
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    path = os.path.join(CHARTS_DIR, 'ml_kmeans_clustering.png')
     plt.savefig(path, dpi=200, bbox_inches='tight')
-    print(f"\n   📊 R² comparison: {path}")
+    print(f"\n   📊 Visualisasi disimpan: {path}")
     plt.close()
 
 
 def main():
-    print("\n🤖 MACHINE LEARNING — Cloud Sample Processing\n")
+    print("\n🤖 MACHINE LEARNING (Unsupervised) — Zona Kualitas Air\n")
 
     authenticate_gee()
     os.makedirs(RESULTS_DIR, exist_ok=True)
     os.makedirs(CHARTS_DIR, exist_ok=True)
 
-    # Cek data yang sudah ada
-    csv_path = os.path.join(RESULTS_DIR, 'ml_training_data.csv')
+    # Load atau sample data
+    csv_path = os.path.join(RESULTS_DIR, 'ml_spectral_samples.csv')
     if os.path.exists(csv_path):
-        print(f"📂 Data training sudah ada: {csv_path}")
+        print(f"📂 Data spektral ditemukan: {csv_path}")
         df = pd.read_csv(csv_path)
     else:
-        df = collect_training_data(n_points=5000)
+        df = collect_spectral_samples(n_points=5000)
 
-    print(f"📋 Dataset: {len(df)} samples, {len(df.columns)} kolom\n")
+    print(f"📋 Dataset: {len(df)} sampel, kolom: {list(df.columns)}\n")
 
-    # Train models
-    results, features = train_models(df)
+    # Tentukan K optimal
+    features = [b for b in FEATURE_BANDS if b in df.columns]
+    scaler = RobustScaler()
+    X_scaled = scaler.fit_transform(df[features].values)
+    best_k, silhouette_scores, k_range = find_optimal_k(X_scaled)
 
-    # Save results
-    results_path = os.path.join(RESULTS_DIR, 'ml_evaluation.json')
-    with open(results_path, 'w') as f:
+    # Run clustering
+    df_clustered, pipeline, cluster_stats = run_kmeans_clustering(df, best_k)
+
+    # Analisis temporal
+    dist_pct = analyze_temporal_distribution(df_clustered)
+
+    # Simpan hasil
+    results = {
+        'method': 'K-Means Unsupervised Clustering',
+        'n_clusters': best_k,
+        'features_used': features,
+        'cluster_statistics': cluster_stats,
+        'temporal_distribution_pct': dist_pct.to_dict(),
+        'note': (
+            'Supervised prediction of satellite-derived indices from their own '
+            'input bands (circular logic) has been replaced with unsupervised '
+            'spatial clustering. For supervised learning, provide in-situ '
+            'field measurements as the target variable (y).'
+        )
+    }
+
+    out_path = os.path.join(RESULTS_DIR, 'ml_clustering_results.json')
+    with open(out_path, 'w') as f:
         json.dump(results, f, indent=2, default=str)
-    print(f"\n💾 Evaluasi ML: {results_path}")
+    print(f"\n💾 Hasil clustering: {out_path}")
+
+    # Simpan tabel distribusi temporal
+    dist_path = os.path.join(RESULTS_DIR, 'cluster_temporal_distribution.csv')
+    dist_pct.to_csv(dist_path)
+    print(f"💾 Distribusi temporal: {dist_path}")
 
     # Plot
-    plot_ml_results(results)
+    plot_results(df_clustered, silhouette_scores, k_range, dist_pct, best_k)
 
     print(f"\n✅ MACHINE LEARNING SELESAI!")
-    print(f"   📊 Hasil: {RESULTS_DIR}/ml_evaluation.json")
+    print(f"   📊 Hasil: {out_path}")
+    print(f"\n   ⚠️  CATATAN UNTUK PAPER:")
+    print(f"   Jika data in-situ tersedia, ganti cluster_label dengan")
+    print(f"   nilai lapangan sebagai target (y) untuk supervised learning.")
 
 
 if __name__ == '__main__':

@@ -1,0 +1,64 @@
+{
+  "method": "K-Means Unsupervised Clustering",
+  "n_clusters": 3,
+  "features_used": [
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8",
+    "B11"
+  ],
+  "cluster_statistics": {
+    "Bersih": {
+      "n_pixels": 20839,
+      "pct": 59.64,
+      "mean_B4": 311.926508,
+      "mean_B3": 514.024161
+    },
+    "Sedang": {
+      "n_pixels": 13389,
+      "pct": 38.32,
+      "mean_B4": 1036.531668,
+      "mean_B3": 1025.81735
+    },
+    "Tercemar": {
+      "n_pixels": 714,
+      "pct": 2.04,
+      "mean_B4": 2579.287115,
+      "mean_B3": 2609.926471
+    }
+  },
+  "temporal_distribution_pct": {
+    "Bersih": {
+      "2019": 58.43349358974359,
+      "2020": 59.29859719438878,
+      "2021": 61.39823717948718,
+      "2022": 58.713942307692314,
+      "2023": 58.35336538461539,
+      "2024": 59.69551282051282,
+      "2025": 61.578525641025635
+    },
+    "Sedang": {
+      "2019": 40.88541666666667,
+      "2020": 39.278557114228455,
+      "2021": 37.72035256410257,
+      "2022": 34.234775641025635,
+      "2023": 40.02403846153847,
+      "2024": 39.1025641025641,
+      "2025": 36.97916666666667
+    },
+    "Tercemar": {
+      "2019": 0.6810897435897436,
+      "2020": 1.4228456913827654,
+      "2021": 0.8814102564102564,
+      "2022": 7.051282051282051,
+      "2023": 1.622596153846154,
+      "2024": 1.201923076923077,
+      "2025": 1.4423076923076923
+    }
+  },
+  "note": "Supervised prediction of satellite-derived indices from their own input bands (circular logic) has been replaced with unsupervised spatial clustering. For supervised learning, provide in-situ field measurements as the target variable (y)."
+}

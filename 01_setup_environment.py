@@ -156,7 +156,7 @@ def main():
     print("🎉 SETUP SELESAI!")
     print("=" * 60)
     print("Langkah selanjutnya:")
-    print("  → Jalankan: python 02_download_satellite_imagery.py")
+    print("  → Jalankan: python 02_cloud_processing.py")
     print("=" * 60)
 
 

@@ -1,0 +1,72 @@
+# ============================================================
+# config.yaml — Konfigurasi Proyek Monitoring Perairan Pesisir
+# ============================================================
+# Ubah file ini untuk mengadaptasi proyek ke wilayah studi lain
+# tanpa menyentuh kode inti Python.
+#
+# Cara penggunaan:
+#   import yaml
+#   with open('config.yaml') as f:
+#       cfg = yaml.safe_load(f)
+#   project_id = cfg['gee']['project_id']
+
+# -------------------------------------------------------
+# Google Earth Engine
+# -------------------------------------------------------
+gee:
+  project_id: "skripsi-rth"   # ← Ganti dengan GCP Project ID Anda
+  # Sentinel-2 Surface Reflectance Harmonized
+  sentinel2_collection: "COPERNICUS/S2_SR_HARMONIZED"
+  # Landsat 8 Collection 2 Level 2
+  landsat8_collection: "LANDSAT/LC08/C02/T1_L2"
+
+# -------------------------------------------------------
+# Area Kajian (Bounding Box — WGS84)
+# Ganti koordinat untuk lokasi berbeda (mis. Surabaya, Bali)
+# -------------------------------------------------------
+study_area:
+  name: "Pesisir Jakarta & Banten"
+  # [min_lon, min_lat, max_lon, max_lat]
+  bbox: [106.5, -6.3, 107.2, -5.7]
+
+# -------------------------------------------------------
+# Parameter Analisis
+# -------------------------------------------------------
+analysis:
+  years: [2019, 2020, 2021, 2022, 2023, 2024, 2025]
+  max_cloud_pct_s2: 10     # % tutupan awan maksimum Sentinel-2
+  max_cloud_pct_l8: 20     # % tutupan awan maksimum Landsat-8
+  sampling_scale_m: 30     # resolusi spasial sampling (meter)
+  n_sample_points: 5000    # jumlah titik sampel per tahun
+
+# -------------------------------------------------------
+# Machine Learning
+# -------------------------------------------------------
+machine_learning:
+  n_clusters_range: [2, 7]   # rentang K untuk pencarian K optimal
+  n_clusters_default: 3      # K default jika tidak menjalankan optimasi
+  # Catatan: Untuk supervised learning, sediakan path ke data in-situ:
+  # insitu_data_path: "data/raw/insitu_measurements.csv"
+  # insitu_target_column: "chlorophyll_ug_L"
+
+# -------------------------------------------------------
+# Statistik & Analisis Tren
+# -------------------------------------------------------
+statistics:
+  # Nilai yang dikembalikan jika komputasi GEE gagal.
+  # PENTING: Gunakan null (bukan 0) agar tidak mendistorsi rata-rata.
+  fallback_value: null
+  # Metode uji tren temporal
+  trend_test: "mann_kendall"    # opsi: "mann_kendall" | "linregress"
+  significance_alpha: 0.05
+
+# -------------------------------------------------------
+# Output
+# -------------------------------------------------------
+output:
+  results_dir: "data/results"
+  maps_dir: "output/maps"
+  charts_dir: "output/charts"
+  reports_dir: "output/reports"
+  thumbnail_dimensions: 800    # px (sisi terpanjang peta thumbnail)
+  chart_dpi: 200

@@ -14,8 +14,9 @@ Pendekatan ini mutlak **100% berbasis Cloud** menggunakan konektivitas Google Ea
 
 - **📈 Complete 7-Years Time Series**: Data terekstraksi secara historis penuh dari tahun 2019, 2020, 2021, 2022, 2023, 2024, hingga 2025.
 - **🗺️ Interactive Split-Map DualLayer**: Evaluasi langsung area pesisir secara visual menggunakan peta folium berbasis _split-slider_ guna membandingkan *Tahun Awal* melawan *Tahun Akhir*.
-- **🧮 Uji Signifikansi (P-Value)**: Regresi *Machine Learning* dan statistik SciPy yang dapat membuktikan apakah peningkatan kadar pencemaran itu nyata atau kebetulan (Signifikan vs Tidak Signifikan).
+- **🧮 Uji Signifikansi (Mann-Kendall)**: Analisis *Temporal Tren* non-parametrik menggunakan Mann-Kendall Test dan Sen's Slope yang robust terhadap *outliers* kecil.
 - **💡 Executive Summary Otomatis**: Hasil analisis GEE akan diterjemahkan oleh algoritma menjadi Paragraf Naratif yang mudah dipahami *Non-Programmer* atau Pembuat Kebijakan Publik.
+- **🤖 K-Means Clustering**: *Machine Learning* tanpa supervisi untuk men-segmentasikan zona kualitas air secara objektif tanpa "Circular Logic".
 
 ## 📊 Parameter Deteksi (ESA Sentinel-2 & NASA Landsat-8)
 
@@ -47,7 +48,7 @@ python 03_cloud_analysis.py
 # 4. Render Layout Grafik & Visualisasi
 python 04_visualization.py
 
-# 5. Modul Opsional Machine Learning (Evaluasi Akurasi RF)
+# 5. Modul Opsional Machine Learning (Zona Clustering Unsupervised K-Means)
 python 06_machine_learning.py
 
 # 6. Jalankan Pusat Dashboard Utama Ke Layar Monitor Anda:
@@ -59,14 +60,13 @@ streamlit run 05_dashboard.py
 ```text
 ├── 01_setup_environment.py      # Autentikasi earthengine-api
 ├── 02_cloud_processing.py       # Cloud Map & Ekstraktor Statistik
-├── 03_cloud_analysis.py         # Temporal Trend & Change Detection
+├── 03_cloud_analysis.py         # Temporal Trend (Mann-Kendall)
 ├── 04_visualization.py          # Generator Chart (Seaborn/Plotly)
 ├── 05_dashboard.py              # Front-End Streamlit Web
-├── 06_machine_learning.py       # Validasi Korelasi Random-Forest
+├── 06_machine_learning.py       # K-Means Unsupervised Clustering
 ├── utils/
 │   ├── gee_utils.py             # Fungsi Koneksi & Filter GEE
-│   ├── water_indices.py         # Rumus Kalkulus Parameter Air
-│   └── visualization_utils.py   
+│   └── water_indices.py         # Rumus Kalkulus Parameter Air
 ├── data/results/                # File Data JSON & CSV (< 1MB)
 └── output/                      # Peta Kecil (PNG) dan Gambar Chart
 ```

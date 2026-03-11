@@ -2,40 +2,40 @@
   "period": "2019-2025",
   "parameters": {
     "NDCI": {
-      "mean_change": 0.021805245260215957,
-      "std_change": 0.050047169446404756,
-      "pct_increased": 66.2,
-      "pct_decreased": 33.8
+      "mean_change": 0.043259910592194084,
+      "std_change": 0.05185414305985706,
+      "pct_increased": 80.1,
+      "pct_decreased": 19.9
     },
     "NDTI": {
-      "mean_change": -0.006413097638291703,
-      "std_change": 0.07129475915650214,
-      "pct_increased": 46.4,
-      "pct_decreased": 53.6
+      "mean_change": 0.004657760133165166,
+      "std_change": 0.0729817461259147,
+      "pct_increased": 52.1,
+      "pct_decreased": 47.9
     },
     "TSS": {
-      "mean_change": -8.600489333807106,
-      "std_change": 8.693398887709352,
-      "pct_increased": 3.7,
-      "pct_decreased": 96.3
+      "mean_change": -7.232343260636683,
+      "std_change": 7.403110785845791,
+      "pct_increased": 4.3,
+      "pct_decreased": 95.7
     },
     "CDOM": {
-      "mean_change": -0.0068349576981386875,
-      "std_change": 0.10375783884495507,
-      "pct_increased": 47.2,
-      "pct_decreased": 52.8
+      "mean_change": -0.009160835782286216,
+      "std_change": 0.10659214448715641,
+      "pct_increased": 46.3,
+      "pct_decreased": 53.7
     },
     "Secchi_Depth": {
-      "mean_change": 0.004261475650998283,
-      "std_change": 0.03323400564160314,
-      "pct_increased": 55.3,
-      "pct_decreased": 44.7
+      "mean_change": 0.00959841985705613,
+      "std_change": 0.030894551348111733,
+      "pct_increased": 64.3,
+      "pct_decreased": 35.7
     },
     "SST": {
-      "mean_change": 0.4950378245404903,
-      "std_change": 2.592052116865661,
-      "pct_increased": 57.0,
-      "pct_decreased": 43.0
+      "mean_change": -1.0999708929676495,
+      "std_change": 1.6660945329031576,
+      "pct_increased": 20.4,
+      "pct_decreased": 79.6
     }
   }
 }
