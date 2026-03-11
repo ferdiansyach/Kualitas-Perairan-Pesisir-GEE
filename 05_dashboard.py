@@ -40,8 +40,8 @@ PARAM_LABELS = {
     'SST': 'Sea Surface Temperature (SST °C)',
 }
 
-def get_kepmen_status(param, val):
-    """Klasifikasi Kualitas Indikator (Buruk/Baik)."""
+def get_water_quality_status(param, val):
+    """Berdasarkan IOCCG (2000) & PP RI No. 22 Tahun 2021 (Lampiran VIII)."""
     if param == 'TSS':
         if val < 0.5: return "🔴 **Buruk (<0.5 g/m³)**: Skor 1 - Kandungan material tersuspensi sangat rendah, air sangat jernih namun miskin nutrien (produktivitas relatif rendah)"
         elif 0.5 <= val <= 1.5: return "🟢 **Baik (0.5-1.5 g/m³)**: Skor 3 - Kondisi TSM sedang & seimbang mendukung proses fotosintesis dan stabilitas ekosistem"
@@ -187,7 +187,7 @@ def render_metrics(stats, year1, year2, param):
         col.metric(label, fmt.format(val2), f"{delta:+.4f}" if key != 'coverage_pct' else f"{delta:+.1f}%")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.info(f"📋 **Status Mutu Air Nasional (Data {year2}):** {get_kepmen_status(param, s2.get('mean', 0))}")
+    st.info(f"📋 **Status Mutu Air Nasional (Data {year2}):** {get_water_quality_status(param, s2.get('mean', 0))}")
 
 
 def render_map(year1, year2, param):

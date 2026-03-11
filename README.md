@@ -26,6 +26,8 @@ Pendekatan ini mutlak **100% berbasis Cloud** menggunakan konektivitas Google Ea
 | **Total Suspended Matter (TSM)** | Empiris (Red) | Kekeruhan air akibat material padat; TSM yang tinggi buat cahaya matahari sulit masuk laut. | 0.5 - 1.5 g/m³ |
 | **Suhu (SST)** | Thermal Band 10 | Perubahan suhu tinggi bisa memicu suhu stres pada organisme biota laut. | 28 - 32 °C |
 
+> **Catatan Standar Baku Mutu:** Rentang kelas parameter kualitas air pada proyek ini diklasifikasikan berdasarkan standar optik satelit *IOCCG (2000)*, yang diselaraskan dengan batas toleransi biologis perlindungan biota laut yang diatur dalam **Lampiran VIII Peraturan Pemerintah (PP) RI No. 22 Tahun 2021** (menggantikan Kepmen LH lama).
+
 ---
 
 ## 🚀 Panduan Menjalankan
